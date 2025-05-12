@@ -10,6 +10,7 @@ import numpy as np
 import scipy as sp
 
 from bbo import exception
+from bbo.output import BBOOutput
 
 if TYPE_CHECKING:
     from numpy.typing import ArrayLike
@@ -47,16 +48,18 @@ def approx_hull(points: ArrayLike):
     if points.ndim == 2:
         simplices = jnp.asarray(hull_simplices_single(points))
         points = jnp.asarray(points)
-        return approx_hull_single(points, simplices)
-    if points.ndim == 3:
+        out = approx_hull_single(points, simplices)
+    elif points.ndim == 3:
         simplices = hull_simplices_batch(points)
         points = jnp.asarray(points)
-        return approx_hull_batch(points, simplices)
-    raise exception.InputError(
-        name="points",
-        value=points,
-        problem=f"Expected 2D or 3D input, but got shape {points.shape}"
-    )
+        out = approx_hull_batch(points, simplices)
+    else:
+        raise exception.InputError(
+            name="points",
+            value=points,
+            problem=f"Expected 2D or 3D input, but got shape {points.shape}"
+        )
+    return BBOOutput(*out)
 
 
 def hull_simplices_batch(points: np.ndarray, array_out: bool = True) -> list[np.ndarray] | jnp.ndarray:
@@ -191,7 +194,7 @@ def approx_hull_single(points: jnp.ndarray, simplices: jnp.ndarray):
     # Rotate bbox back to original space
     best_bbox = bbox_corners @ best_rotation.T
 
-    return best_rotation, best_bbox, min_volume, final_points
+    return best_rotation, best_bbox, final_points, min_volume
 
 
 approx_hull_batch = jax.vmap(approx_hull_single, in_axes=(0, 0))
