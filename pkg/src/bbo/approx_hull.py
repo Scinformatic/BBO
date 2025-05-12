@@ -93,6 +93,8 @@ def _approx_hull(points: jnp.ndarray, simplices: jnp.ndarray):
         Rotated points in minimal bounding box alignment.
     """
 
+    ndim = points.shape[1]
+
     # Extract triangle vertices for all faces
     triangles = points[simplices]  # (n_faces, n_dims, n_dims)
 
@@ -158,16 +160,12 @@ def _approx_hull(points: jnp.ndarray, simplices: jnp.ndarray):
     final_points = rotated_points[min_idx]
 
     # Bounding box corners (in rotated space)
-    bbox_corners = jnp.array([
-        [best_min[0], best_min[1], best_min[2]],
-        [best_min[0], best_min[1], best_max[2]],
-        [best_min[0], best_max[1], best_min[2]],
-        [best_min[0], best_max[1], best_max[2]],
-        [best_max[0], best_min[1], best_min[2]],
-        [best_max[0], best_min[1], best_max[2]],
-        [best_max[0], best_max[1], best_min[2]],
-        [best_max[0], best_max[1], best_max[2]],
-    ])
+    # For each axis, create a list: [min, max]
+    choices = jnp.stack([best_min, best_max], axis=0)  # (2, n_dims)
+    # Generate all index combinations (0 or 1 per axis) — Cartesian product
+    grid = jnp.indices((2,) * ndim).reshape(ndim, -1).T  # (2^n_dims, n_dims)
+    # Select min/max per axis using the grid indices
+    bbox_corners = choices[grid, jnp.arange(ndim)]  # (2^n_dims, n_dims)
 
     # Rotate bbox back to original space
     best_bbox = bbox_corners @ best_rotation.T
