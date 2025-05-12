@@ -13,11 +13,17 @@ if TYPE_CHECKING:
     from numpy.typing import ArrayLike
 
 
-__all__ = ["approx_hull"]
+__all__ = [
+    "approx_hull",
+    "approx_hull_single",
+    "approx_hull_batch",
+    "hull_simplices_single",
+    "hull_simplices_batch"
+]
 
 
 def approx_hull(points: ArrayLike):
-    """Calculate the oriented minimum-volume bounding box (MVBB) of a set of 3D points.
+    """Calculate the oriented minimum-volume bounding box (MVBB) of a set of points (or batch thereof).
 
     Parameters
     ----------
@@ -35,29 +41,27 @@ def approx_hull(points: ArrayLike):
     final_points : ndarray
         Rotated points in minimal bounding box alignment.
     """
-    simplices_list = _parallel_convex_hull(points)
-    # Step 2: Pad simplices to uniform shape
+    simplices = hull_simplices_batch(points)
+    points = jnp.asarray(points)
+    rotations, bboxes, volumes, aligned_points = approx_hull_batch(points, simplices)
+    return rotations, bboxes, volumes, aligned_points
+
+
+def hull_simplices_batch(points: np.ndarray, array_out: bool = True) -> list[np.ndarray] | jnp.ndarray:
+    ray.init(ignore_reinit_error=True, logging_level=logging.WARNING)
+    futures = [_hull_simplices_single.remote(pc) for pc in points]
+    simplices_list = ray.get(futures)
+    if not array_out:
+        return simplices_list
+    # Pad simplices to uniform shape
     max_faces = max(len(s) for s in simplices_list)
     simplices_padded = np.zeros((len(simplices_list), max_faces, 3), dtype=np.int32)
     for i, s in enumerate(simplices_list):
         simplices_padded[i, :len(s)] = s
-
-    # Step 3: JAX MVBB Computation
-    points_jax = jnp.asarray(points)
-    simplices_jax = jnp.asarray(simplices_padded)
-    rotations, bboxes, volumes, aligned_points = _approx_hull_batched(points_jax, simplices_jax)
-    return rotations, bboxes, volumes, aligned_points
+    return jnp.asarray(simplices_padded)
 
 
-def _parallel_convex_hull(point_clouds: np.ndarray) -> list[np.ndarray]:
-    ray.init(ignore_reinit_error=True, logging_level=logging.WARNING)
-    futures = [_convex_hull_simplices.remote(pc) for pc in point_clouds]
-    simplices_list = ray.get(futures)
-    return simplices_list
-
-
-@ray.remote
-def _convex_hull_simplices(points: ArrayLike) -> np.ndarray:
+def hull_simplices_single(points: ArrayLike) -> np.ndarray:
     """Calculate the convex hull of a set of 3D points.
 
     References
@@ -69,8 +73,13 @@ def _convex_hull_simplices(points: ArrayLike) -> np.ndarray:
     return sp.spatial.ConvexHull(points).simplices  # (n_faces, n_dims)
 
 
+@ray.remote
+def _hull_simplices_single(points: ArrayLike) -> np.ndarray:
+    return hull_simplices_single(points)
+
+
 @jax.jit
-def _approx_hull(points: jnp.ndarray, simplices: jnp.ndarray):
+def approx_hull_single(points: jnp.ndarray, simplices: jnp.ndarray):
     """Calculate the oriented minimum-volume bounding box (MVBB) of a set of 3D points.
 
     Parameters
@@ -173,7 +182,7 @@ def _approx_hull(points: jnp.ndarray, simplices: jnp.ndarray):
     return best_rotation, best_bbox, min_volume, final_points
 
 
-_approx_hull_batched = jax.vmap(_approx_hull, in_axes=(0, 0))
+approx_hull_batch = jax.vmap(approx_hull_single, in_axes=(0, 0))
 
 
 def _approx_hull_non_vectorized(points: np.ndarray):
