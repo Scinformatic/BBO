@@ -9,6 +9,8 @@ import jax
 import numpy as np
 import scipy as sp
 
+from bbo import exception
+
 if TYPE_CHECKING:
     from numpy.typing import ArrayLike
 
@@ -41,10 +43,20 @@ def approx_hull(points: ArrayLike):
     final_points : ndarray
         Rotated points in minimal bounding box alignment.
     """
-    simplices = hull_simplices_batch(points)
-    points = jnp.asarray(points)
-    rotations, bboxes, volumes, aligned_points = approx_hull_batch(points, simplices)
-    return rotations, bboxes, volumes, aligned_points
+    points = np.asarray(points)
+    if points.ndim == 2:
+        simplices = jnp.asarray(hull_simplices_single(points))
+        points = jnp.asarray(points)
+        return approx_hull_single(points, simplices)
+    if points.ndim == 3:
+        simplices = hull_simplices_batch(points)
+        points = jnp.asarray(points)
+        return approx_hull_batch(points, simplices)
+    raise exception.InputError(
+        name="points",
+        value=points,
+        problem=f"Expected 2D or 3D input, but got shape {points.shape}"
+    )
 
 
 def hull_simplices_batch(points: np.ndarray, array_out: bool = True) -> list[np.ndarray] | jnp.ndarray:
@@ -183,76 +195,3 @@ def approx_hull_single(points: jnp.ndarray, simplices: jnp.ndarray):
 
 
 approx_hull_batch = jax.vmap(approx_hull_single, in_axes=(0, 0))
-
-
-def _approx_hull_non_vectorized(points: np.ndarray):
-    """Calculate the oriented minimum-volume bounding box (MVBB) of a set of 3D points.
-
-    Parameters
-    ----------
-    points
-        Points in 3D space as an array of shape `(n_points, 3)`.
-
-    Returns
-    -------
-    rotation_matrix (ndarray): (3, 3) matrix aligning points to minimal bounding box axes.
-    bounding_box (ndarray): (8, 3) corners of the minimal bounding box.
-    volume (float): Volume of the minimal bounding box.
-    """
-
-    min_volume = np.inf
-    best_rotation: np.ndarray = None
-    best_bbox: tuple[np.ndarray, np.ndarray] = None
-    final_points: np.ndarray = None
-
-    hull = sp.spatial.ConvexHull(points)
-    # Iterate over hull faces.
-    # `hull.simplices` contains indices of the `points`
-    # forming each triangular face of the convex hull.
-    for simplex in hull.simplices:
-        # Compute normal vector of the face
-        triangle = points[simplex]
-        edge1 = triangle[1] - triangle[0]
-        edge2 = triangle[2] - triangle[0]
-        normal = np.cross(edge1, edge2)
-        if np.linalg.norm(normal) <= 1e-12:
-            # Degenerate triangle, skip it
-            continue
-        normal /= np.linalg.norm(normal)
-
-        # Build rotation matrix aligning z-axis to normal
-        z_axis = normal
-        x_axis = edge1 / np.linalg.norm(edge1)
-        y_axis = np.cross(z_axis, x_axis)
-        y_axis /= np.linalg.norm(y_axis)
-        x_axis = np.cross(y_axis, z_axis)
-        rotation = np.vstack([x_axis, y_axis, z_axis]).T
-        if np.linalg.det(rotation) < 0:
-            rotation[:, -1] *= -1  # Flip last axis to ensure right-handed frame
-
-        # Rotate points
-        rotated_points = points @ rotation
-
-        # Compute axis-aligned bounding box in rotated space
-        min_coords = rotated_points.min(axis=0)
-        max_coords = rotated_points.max(axis=0)
-        volume = np.prod(max_coords - min_coords)
-
-        if volume < min_volume:
-            min_volume = volume
-            best_rotation = rotation
-            bbox_corners = np.array(
-                [
-                    [min_coords[0], min_coords[1], min_coords[2]],
-                    [min_coords[0], min_coords[1], max_coords[2]],
-                    [min_coords[0], max_coords[1], min_coords[2]],
-                    [min_coords[0], max_coords[1], max_coords[2]],
-                    [max_coords[0], min_coords[1], min_coords[2]],
-                    [max_coords[0], min_coords[1], max_coords[2]],
-                    [max_coords[0], max_coords[1], min_coords[2]],
-                    [max_coords[0], max_coords[1], max_coords[2]],
-                ]
-            )
-            best_bbox = bbox_corners @ rotation.T  # Rotate corners back to original orientation
-            final_points = rotated_points
-    return best_rotation, best_bbox, min_volume, final_points
