@@ -24,4 +24,5 @@ dependencies = [
     "numpy",
     "scipy",
     "jax",
+    "arrayer < 0.2",
 ]
