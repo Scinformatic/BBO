@@ -1,8 +1,17 @@
+from __future__ import annotations
+
+from typing import TYPE_CHECKING
+
+import jax.numpy as jnp
+import jax
 import numpy as np
 import scipy as sp
 
+if TYPE_CHECKING:
+    from numpy.typing import ArrayLike
 
-def approx_hull(points: np.ndarray):
+
+def approx_hull(points: ArrayLike):
     """Calculate the oriented minimum-volume bounding box (MVBB) of a set of 3D points.
 
     Parameters
@@ -22,10 +31,34 @@ def approx_hull(points: np.ndarray):
         Rotated points in minimal bounding box alignment.
     """
     hull = sp.spatial.ConvexHull(points)
-
     # Indices of `points` forming each
     # triangular face of the convex hull.
     simplices = hull.simplices  # (n_faces, n_dims)
+    return _approx_hull_jax(points, simplices)
+
+@jax.jit
+def _approx_hull_jax(points: jnp.ndarray, simplices: jnp.ndarray):
+    """Calculate the oriented minimum-volume bounding box (MVBB) of a set of 3D points.
+
+    Parameters
+    ----------
+    points
+        Point coordinates as an array of shape `(n_points, n_dims)`.
+    simplices
+        Indices of points forming each triangular face (from ConvexHull)
+        as an integer array of shape `(n_faces, n_dims)`.
+
+    Returns
+    -------
+    rotation_matrix : (3, 3) float
+        Matrix aligning points to minimal bounding box axes.
+    bounding_box : (8, 3) float
+        Corners of the minimal bounding box.
+    volume : float
+        Volume of the minimal bounding box.
+    final_points : (n_points, 3) float
+        Rotated points in minimal bounding box alignment.
+    """
 
     # Extract triangle vertices for all faces
     triangles = points[simplices]  # (n_faces, n_dims, n_dims)
@@ -35,57 +68,64 @@ def approx_hull(points: np.ndarray):
     edge2 = triangles[:, 2] - triangles[:, 0]  # (n_faces, n_dims)
 
     # Compute normals
-    normals = np.cross(edge1, edge2)  # (n_faces, n_dims)
-    norm_lengths = np.linalg.norm(normals, axis=1)  # (n_faces,)
+    normals = jnp.cross(edge1, edge2)  # (n_faces, n_dims)
+    norm_lengths = jnp.linalg.norm(normals, axis=1)  # (n_faces,)
 
-    # Mask degenerate triangles
-    valid_mask = norm_lengths > 1e-12  # Avoid divide by zero
-    if not np.any(valid_mask):
-        raise ValueError("All triangles are degenerate.")
+    # Mask for valid (non-degenerate) triangles
+    valid_mask = norm_lengths > 1e-12
 
-    normals = normals[valid_mask]
-    edge1 = edge1[valid_mask]
+    # Filter valid triangles
+    # Instead of using the mask directly (e.g., `normals[valid_mask]`),
+    # we use `jnp.where` to ensure the shape remains consistent
+    # so that the function can be JIT-compiled.
+    normals = jnp.where(valid_mask[:, None], normals, jnp.nan)
+    edge1 = jnp.where(valid_mask[:, None], edge1, jnp.nan)
 
-    # Normalize normals to get z-axes
-    z_axes = normals / np.linalg.norm(normals, axis=1, keepdims=True)  # (n_valid_faces, n_dims)
+    # Compute orthonormal axes
+    z_axes = normals / jnp.linalg.norm(normals, axis=1, keepdims=True)  # (n_faces, n_dims)
+    x_axes = edge1 / jnp.linalg.norm(edge1, axis=1, keepdims=True)  # (n_faces, n_dims)
+    y_axes = jnp.cross(z_axes, x_axes)
+    y_axes = y_axes / jnp.linalg.norm(y_axes, axis=1, keepdims=True)  # (n_faces, n_dims)
+    # Gram-Schmidt refinement for x-axes
+    x_axes = jnp.cross(y_axes, z_axes)
 
-    # Normalize edge1 to get x-axes
-    x_axes = edge1 / np.linalg.norm(edge1, axis=1, keepdims=True)  # (n_valid_faces, n_dims)
-
-    # Compute y-axes via cross product
-    y_axes = np.cross(z_axes, x_axes)
-    y_axes /= np.linalg.norm(y_axes, axis=1, keepdims=True)
-
-    # Recompute orthogonal x-axes (Gram-Schmidt refinement)
-    x_axes = np.cross(y_axes, z_axes)
-
-    # Stack into rotation matrices
-    rotations = np.stack([x_axes, y_axes, z_axes], axis=-1)  # (n_valid_faces, n_dims, n_dims)
+    # Stack into rotation matrices (x, y, z as columns)
+    rotations = jnp.stack([x_axes, y_axes, z_axes], axis=-1)  # (n_faces, n_dims, n_dims)
 
     # Ensure right-handed coordinate systems (i.e., no reflection)
-    dets = np.linalg.det(rotations)  # (n_valid_faces,)
-    rotations[dets < 0, :, -1] *= -1  # Flip last axis if needed
+    # by flipping the last axis if the determinant is negative.
+    # Again, here we can't use the mask directly
+    # (i.e., `rotations.at[flip_mask, :, -1].multiply(-1.0)`),
+    # as we will get a `NonConcreteBooleanIndexError`.
+    # See: https://docs.jax.dev/en/latest/errors.html#jax.errors.NonConcreteBooleanIndexError
+    dets = jnp.linalg.det(rotations)  # (n_faces,)
+    flip_mask = dets < 0
+    scale = jnp.where(flip_mask, -1.0, 1.0).reshape(-1, 1)
+    z_axes_flipped = rotations[:, :, -1] * scale
+    rotations = rotations.at[:, :, -1].set(z_axes_flipped)
 
-    # Rotate points for all rotations: (n_valid_faces, n_points, n_dims)
-    rotated_points = np.einsum('nj,fji->fni', points, rotations)
+    # Rotate points for all rotations
+    rotated_points = jnp.einsum('nj,fji->fni', points, rotations)  # (n_faces, n_points, n_dims)
 
-    # Compute AABB min and max for each rotation
-    min_coords = rotated_points.min(axis=1)  # (n_valid_faces, n_dims)
-    max_coords = rotated_points.max(axis=1)  # (n_valid_faces, n_dims)
+    # Compute AABB bounds in rotated space
+    min_coords = jnp.min(rotated_points, axis=1)  # (n_faces, n_dims)
+    max_coords = jnp.max(rotated_points, axis=1)  # (n_faces, n_dims)
 
     # Compute volumes
-    volumes = np.prod(max_coords - min_coords, axis=1)  # (n_valid_faces,)
+    volumes = jnp.prod(max_coords - min_coords, axis=1)  # (n_faces,)
 
-    # Find the minimal volume
-    min_idx = np.argmin(volumes)
-    min_volume = volumes[min_idx]
+    # Find minimal volume index (ignoring NaNs)
+    min_idx = jnp.nanargmin(volumes)
+    min_volume = jnp.nanmin(volumes)
+
+    # Extract best rotation and aligned points
     best_rotation = rotations[min_idx]
     best_min = min_coords[min_idx]
     best_max = max_coords[min_idx]
     final_points = rotated_points[min_idx]
 
-    # Compute bounding box corners in rotated space
-    bbox_corners = np.array([
+    # Bounding box corners (in rotated space)
+    bbox_corners = jnp.array([
         [best_min[0], best_min[1], best_min[2]],
         [best_min[0], best_min[1], best_max[2]],
         [best_min[0], best_max[1], best_min[2]],
@@ -94,9 +134,9 @@ def approx_hull(points: np.ndarray):
         [best_max[0], best_min[1], best_max[2]],
         [best_max[0], best_max[1], best_min[2]],
         [best_max[0], best_max[1], best_max[2]],
-    ])  # (2^n_dims, n_dims)
+    ])
 
-    # Rotate bbox corners back to original space
-    best_bbox = bbox_corners @ best_rotation.T  # (2^n_dims, n_dims)
+    # Rotate bbox back to original space
+    best_bbox = bbox_corners @ best_rotation.T
 
     return best_rotation, best_bbox, min_volume, final_points
