@@ -76,36 +76,6 @@ def _approx_hull(points: jnp.ndarray, simplices: jnp.ndarray):
     normals_flipped = normals * scale
     rotations = rotations.at[:, -1, :].set(normals_flipped)
 
-    # Rotate points for all rotations
-    rotated_points = jnp.einsum('nj,fkj->fnk', points, rotations)  # (n_faces, n_points, n_dims)
-
-    # Compute AABB bounds in rotated space
-    min_coords = jnp.min(rotated_points, axis=1)  # (n_faces, n_dims)
-    max_coords = jnp.max(rotated_points, axis=1)  # (n_faces, n_dims)
-
-    # Compute volumes
-    volumes = jnp.prod(max_coords - min_coords, axis=1)  # (n_faces,)
-
-    # Find minimal volume index
-    min_idx = jnp.nanargmin(volumes)
-    min_volume = jnp.nanmin(volumes)
-
-    # Extract best rotation and aligned points
-    best_rotation = rotations[min_idx]
-    best_min = min_coords[min_idx]
-    best_max = max_coords[min_idx]
-    final_points = rotated_points[min_idx]
-
-    # Generate bounding box corners in rotated space (2^n_dims combinations)
-    corner_signs = jnp.array(
-        list(itertools.product(*[[-1, 1]] * n_dims))
-    )  # (2^n_dims, n_dims)
-    bbox_corners = jnp.where(corner_signs < 0, best_min, best_max)  # (2^n_dims, n_dims)
-
-    # Rotate bounding box corners back to original space
-    best_bbox = bbox_corners @ best_rotation
-    return best_rotation, best_bbox, min_volume, final_points
-
 
 @jax.jit
 def gram_schmidt(vectors: jnp.ndarray) -> jnp.ndarray:
