@@ -9,7 +9,7 @@ import jax
 import numpy as np
 import scipy as sp
 
-from bbo import exception
+from bbo import exception, util
 from bbo.output import BBOOutput
 
 if TYPE_CHECKING:
@@ -17,15 +17,15 @@ if TYPE_CHECKING:
 
 
 __all__ = [
-    "approx_hull",
-    "approx_hull_single",
-    "approx_hull_batch",
+    "run",
+    "run_single",
+    "run_batch",
     "hull_simplices_single",
     "hull_simplices_batch"
 ]
 
 
-def approx_hull(points: ArrayLike) -> BBOOutput:
+def run(points: ArrayLike) -> BBOOutput:
     """Calculate the oriented minimum-volume bounding box (MVBB) of a set of points (or batch thereof).
 
     Parameters
@@ -38,18 +38,18 @@ def approx_hull(points: ArrayLike) -> BBOOutput:
     if points.ndim == 2:
         simplices = jnp.asarray(hull_simplices_single(points))
         points = jnp.asarray(points)
-        out = approx_hull_single(points, simplices)
+        func = run_single
     elif points.ndim == 3:
         simplices = hull_simplices_batch(points)
         points = jnp.asarray(points)
-        out = approx_hull_batch(points, simplices)
+        func = run_batch
     else:
         raise exception.InputError(
             name="points",
             value=points,
             problem=f"Expected 2D or 3D input, but got shape {points.shape}"
         )
-    return BBOOutput(*out)
+    return BBOOutput(*func(points, simplices))
 
 
 def hull_simplices_batch(points: np.ndarray, array_out: bool = True) -> list[np.ndarray] | jnp.ndarray:
@@ -84,27 +84,19 @@ def _hull_simplices_single(points: ArrayLike) -> np.ndarray:
 
 
 @jax.jit
-def approx_hull_single(points: jnp.ndarray, simplices: jnp.ndarray):
-    """Calculate the oriented minimum-volume bounding box (MVBB) of a set of 3D points.
+def run_single(
+    points: jnp.ndarray,
+    simplices: jnp.ndarray
+) -> tuple[jnp.ndarray, jnp.ndarray, jnp.ndarray, jnp.ndarray]:
+    """Calculate the oriented minimum-volume bounding box (MVBB) of a set of points.
 
     Parameters
     ----------
     points
-        Point coordinates as an array of shape `(n_points, n_dims)`.
+        Point coordinates as an array of shape `(n_points, n_dimensions)`.
     simplices
         Indices of points forming each triangular face (from ConvexHull)
-        as an integer array of shape `(n_faces, n_dims)`.
-
-    Returns
-    -------
-    rotation_matrix : (3, 3) float
-        Matrix aligning points to minimal bounding box axes.
-    bounding_box : (8, 3) float
-        Corners of the minimal bounding box.
-    volume : float
-        Volume of the minimal bounding box.
-    final_points : (n_points, 3) float
-        Rotated points in minimal bounding box alignment.
+        as an integer array of shape `(n_faces, n_dimensions)`.
     """
     ndim = points.shape[-1]
 
@@ -178,17 +170,13 @@ def approx_hull_single(points: jnp.ndarray, simplices: jnp.ndarray):
     best_upper_bounds = upper_bounds[idx_min_vol]
     best_points = rotated_points[idx_min_vol]
 
-    # Bounding box corners (in rotated space)
-    choices = jnp.stack([best_lower_bounds, best_upper_bounds], axis=0)  # (2, n_dims)
-    # Generate all index combinations (0 or 1 per axis) — Cartesian product
-    grid = jnp.indices((2,) * ndim).reshape(ndim, -1).T  # (2^n_dims, n_dims)
-    # Select min/max per axis using the grid indices
-    bbox_corners = choices[grid, jnp.arange(ndim)]  # (2^n_dims, n_dims)
+    # Bounding box vertices (in rotated space)
+    bbox_vertices_rotated = util.box_vertices_from_bounds(best_lower_bounds, best_upper_bounds)
 
     # Rotate bbox back to original space
-    best_bbox = bbox_corners @ best_rotation.T
+    best_bbox = bbox_vertices_rotated @ best_rotation.T
 
     return best_points, best_bbox, best_rotation, best_volume
 
 
-approx_hull_batch = jax.vmap(approx_hull_single, in_axes=(0, 0))
+run_batch = jax.vmap(run_single, in_axes=(0, 0))
