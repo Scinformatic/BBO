@@ -157,25 +157,25 @@ def approx_hull_single(points: jnp.ndarray, simplices: jnp.ndarray):
     rotated_points = jnp.einsum('nj,fji->fni', points, rotations)  # (n_faces, n_points, n_dims)
 
     # Compute AABB bounds in rotated space
-    min_coords = jnp.min(rotated_points, axis=1)  # (n_faces, n_dims)
-    max_coords = jnp.max(rotated_points, axis=1)  # (n_faces, n_dims)
+    lower_bounds = jnp.min(rotated_points, axis=1)  # (n_faces, n_dims)
+    upper_bounds = jnp.max(rotated_points, axis=1)  # (n_faces, n_dims)
 
     # Compute volumes
-    volumes = jnp.prod(max_coords - min_coords, axis=1)  # (n_faces,)
+    volumes = jnp.prod(upper_bounds - lower_bounds, axis=1)  # (n_faces,)
 
     # Find minimal volume index (ignoring NaNs)
-    min_idx = jnp.nanargmin(volumes)
-    min_volume = jnp.nanmin(volumes)
+    idx_min_vol = jnp.nanargmin(volumes)
 
     # Extract best rotation and aligned points
-    best_rotation = rotations[min_idx]
-    best_min = min_coords[min_idx]
-    best_max = max_coords[min_idx]
-    final_points = rotated_points[min_idx]
+    best_rotation = rotations[idx_min_vol]
+    best_volume = volumes[idx_min_vol]
+    best_lower_bounds = lower_bounds[idx_min_vol]
+    best_upper_bounds = upper_bounds[idx_min_vol]
+    best_points = rotated_points[idx_min_vol]
 
     # Bounding box corners (in rotated space)
     # For each axis, create a list: [min, max]
-    choices = jnp.stack([best_min, best_max], axis=0)  # (2, n_dims)
+    choices = jnp.stack([best_lower_bounds, best_upper_bounds], axis=0)  # (2, n_dims)
     # Generate all index combinations (0 or 1 per axis) — Cartesian product
     grid = jnp.indices((2,) * ndim).reshape(ndim, -1).T  # (2^n_dims, n_dims)
     # Select min/max per axis using the grid indices
@@ -184,7 +184,7 @@ def approx_hull_single(points: jnp.ndarray, simplices: jnp.ndarray):
     # Rotate bbox back to original space
     best_bbox = bbox_corners @ best_rotation.T
 
-    return final_points, best_bbox, best_rotation, min_volume
+    return best_points, best_bbox, best_rotation, best_volume
 
 
 approx_hull_batch = jax.vmap(approx_hull_single, in_axes=(0, 0))
