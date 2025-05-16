@@ -25,24 +25,14 @@ __all__ = [
 ]
 
 
-def approx_hull(points: ArrayLike):
+def approx_hull(points: ArrayLike) -> BBOOutput:
     """Calculate the oriented minimum-volume bounding box (MVBB) of a set of points (or batch thereof).
 
     Parameters
     ----------
     points
-        Points in 3D space as an array of shape `(n_points, 3)`.
-
-    Returns
-    -------
-    rotation_matrix : ndarray
-        (3, 3) matrix aligning points to minimal bounding box axes.
-    bounding_box : ndarray
-        (8, 3) corners of the minimal bounding box.
-    volume : float
-        Volume of the minimal bounding box.
-    final_points : ndarray
-        Rotated points in minimal bounding box alignment.
+        Points in 3D space as an array of shape `(n_points, 3)`
+        or `(n_batches, n_points, 3)`.
     """
     points = np.asarray(points)
     if points.ndim == 2:
@@ -194,7 +184,7 @@ def approx_hull_single(points: jnp.ndarray, simplices: jnp.ndarray):
     # Rotate bbox back to original space
     best_bbox = bbox_corners @ best_rotation.T
 
-    return best_rotation, best_bbox, final_points, min_volume
+    return final_points, best_bbox, best_rotation, min_volume
 
 
 approx_hull_batch = jax.vmap(approx_hull_single, in_axes=(0, 0))
