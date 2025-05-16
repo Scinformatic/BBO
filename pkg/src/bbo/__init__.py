@@ -23,6 +23,10 @@ def run(points: ArrayLike, method: Literal["hull", "pca", "best"] = "best") -> B
     if method == "pca":
         return pca.run(points)
     if method == "best":
+        points = np.asarray(points)
+        if points.shape[-1] == 2:
+            # Exact solution for 2D points
+            return hull.run(points)
         hull_output = hull.run(points)
         pca_output = pca.run(points)
         if hull_output.volume.ndim == 0:
