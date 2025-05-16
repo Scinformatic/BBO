@@ -12,6 +12,7 @@ def pca__batch_vs_single__test():
     n_batches = 10
     n_points = 100
     n_features_cases = (2, 3, 4)
+    np.random.seed(42)
 
     for n_features in n_features_cases:
         points = np.random.rand(n_batches, n_points, n_features)
@@ -37,6 +38,8 @@ def pca__test():
     n_batches = 100
     n_points = 100
     n_features_cases = (2, 3, 4)
+    np.random.seed(42)
+
     for n_features in n_features_cases:
         points = np.random.rand(n_batches, n_points, n_features)
         output = bbo.pca.run(points)
