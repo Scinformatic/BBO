@@ -58,9 +58,11 @@ def hull_simplices_batch(points: np.ndarray, array_out: bool = True) -> list[np.
     simplices_list = ray.get(futures)
     if not array_out:
         return simplices_list
+    # Infer simplex dimensionality
+    simplex_ndim = simplices_list[0].shape[1]
     # Pad simplices to uniform shape
     max_faces = max(len(s) for s in simplices_list)
-    simplices_padded = np.zeros((len(simplices_list), max_faces, 3), dtype=np.int32)
+    simplices_padded = np.zeros((len(simplices_list), max_faces, simplex_ndim), dtype=np.int32)
     for i, s in enumerate(simplices_list):
         simplices_padded[i, :len(s)] = s
     return jnp.asarray(simplices_padded)
