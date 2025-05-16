@@ -31,8 +31,8 @@ def run(points: ArrayLike) -> BBOOutput:
     Parameters
     ----------
     points
-        Points in 3D space as an array of shape `(n_points, 3)`
-        or `(n_batches, n_points, 3)`.
+        Points as an array of shape `(n_points, n_dimensions)`
+        or `(n_batches, n_points, n_dimensions)`.
     """
     points = np.asarray(points)
     if points.ndim == 2:
@@ -96,59 +96,84 @@ def run_single(
         Point coordinates as an array of shape `(n_points, n_dimensions)`.
     simplices
         Indices of points forming each triangular face (from ConvexHull)
-        as an integer array of shape `(n_faces, n_dimensions)`.
+        as an integer array of shape `(n_faces_or_edges, n_dimensions)`.
     """
-    ndim = points.shape[-1]
+    points_ndim = points.shape[-1]
 
-    # Extract triangle vertices for all faces
-    triangles = points[simplices]  # (n_faces, n_dims, n_dims)
+    if points_ndim == 2:
+        # Extract edge vertices for all edges
+        lines = points[simplices]  # (n_edges, 2, 2)
 
-    # Compute edge vectors
-    edge1 = triangles[:, 1] - triangles[:, 0]  # (n_faces, n_dims)
-    edge2 = triangles[:, 2] - triangles[:, 0]  # (n_faces, n_dims)
+        # Compute edge vectors
+        edges = lines[:, 1] - lines[:, 0]  # (n_edges, 2)
 
-    # Compute normals
-    normals = jnp.cross(edge1, edge2)  # (n_faces, n_dims)
-    norm_lengths = jnp.linalg.norm(normals, axis=1)  # (n_faces,)
+        # Compute norms
+        edge_norms = jnp.linalg.norm(edges, axis=1)  # (n_edges,)
 
-    # Mask for valid (non-degenerate) triangles
-    valid_mask = norm_lengths > 1e-12
+        # Mask for valid (non-degenerate) edges (to avoid division by zero)
+        valid_mask = edge_norms > 1e-12
 
-    # Filter valid triangles
-    # Instead of using the mask directly (e.g., `normals[valid_mask]`),
-    # we use `jnp.where` to ensure the shape remains consistent
-    # so that the function can be JIT-compiled.
-    normals = jnp.where(valid_mask[:, None], normals, jnp.nan)
-    edge1 = jnp.where(valid_mask[:, None], edge1, jnp.nan)
+        # Filter valid edges
+        safe_norms = jnp.where(valid_mask, edge_norms, jnp.nan)
 
-    # Compute orthonormal axes
-    z_axes = normals / jnp.linalg.norm(normals, axis=1, keepdims=True)  # (n_faces, n_dims)
-    x_axes = edge1 / jnp.linalg.norm(edge1, axis=1, keepdims=True)  # (n_faces, n_dims)
-    y_axes = jnp.cross(z_axes, x_axes)
-    y_axes = y_axes / jnp.linalg.norm(y_axes, axis=1, keepdims=True)  # (n_faces, n_dims)
-    # Gram-Schmidt refinement for x-axes
-    x_axes = jnp.cross(y_axes, z_axes)
+        # Compute orthonormal axes
+        x_axes = edges / safe_norms[:, None]  # (n_edges, 2)
+        # Perpendicular vectors (rotated 90 degrees CCW)
+        y_axes = jnp.stack([-x_axes[:, 1], x_axes[:, 0]], axis=1)  # (n_edges, 2)
 
-    # Stack into rotation matrices (x, y, z as columns)
-    rotations = jnp.stack([x_axes, y_axes, z_axes], axis=-1)  # (n_faces, n_dims, n_dims)
+        # Stack into rotation matrices (x_axis and y_axis as columns)
+        rotations = jnp.stack([x_axes, y_axes], axis=-1)  # (n_edges, 2, 2)
 
-    # Append identity matrix as fallback candidate,
-    # so that if all other rotations increase the volume,
-    # we return the identity rotation and the original points.
-    identity_rotation = jnp.eye(ndim)
-    rotations = jnp.concatenate([rotations, identity_rotation[None]], axis=0)  # (n_faces + 1, n_dims, n_dims)
+    elif points_ndim == 3:
+        # Extract triangle vertices for all faces
+        triangles = points[simplices]  # (n_faces, n_dims, n_dims)
 
-    # Ensure right-handed coordinate systems (i.e., no reflection)
-    # by flipping the last axis if the determinant is negative.
-    # Again, here we can't use the mask directly
-    # (i.e., `rotations.at[flip_mask, :, -1].multiply(-1.0)`),
-    # as we will get a `NonConcreteBooleanIndexError`.
-    # See: https://docs.jax.dev/en/latest/errors.html#jax.errors.NonConcreteBooleanIndexError
-    dets = jnp.linalg.det(rotations)  # (n_faces,)
-    flip_mask = dets < 0
-    scale = jnp.where(flip_mask, -1.0, 1.0).reshape(-1, 1)
-    z_axes_flipped = rotations[:, :, -1] * scale
-    rotations = rotations.at[:, :, -1].set(z_axes_flipped)
+        # Compute edge vectors
+        edge1 = triangles[:, 1] - triangles[:, 0]  # (n_faces, n_dims)
+        edge2 = triangles[:, 2] - triangles[:, 0]  # (n_faces, n_dims)
+
+        # Compute normals
+        normals = jnp.cross(edge1, edge2)  # (n_faces, n_dims)
+        norm_lengths = jnp.linalg.norm(normals, axis=1)  # (n_faces,)
+
+        # Mask for valid (non-degenerate) triangles (to avoid division by zero)
+        valid_mask = norm_lengths > 1e-12
+
+        # Filter valid triangles
+        # Instead of using the mask directly (e.g., `normals[valid_mask]`),
+        # we use `jnp.where` to ensure the shape remains consistent
+        # so that the function can be JIT-compiled.
+        normals = jnp.where(valid_mask[:, None], normals, jnp.nan)
+        edge1 = jnp.where(valid_mask[:, None], edge1, jnp.nan)
+
+        # Compute orthonormal axes
+        z_axes = normals / jnp.linalg.norm(normals, axis=1, keepdims=True)  # (n_faces, n_dims)
+        x_axes = edge1 / jnp.linalg.norm(edge1, axis=1, keepdims=True)  # (n_faces, n_dims)
+        y_axes = jnp.cross(z_axes, x_axes)
+        y_axes = y_axes / jnp.linalg.norm(y_axes, axis=1, keepdims=True)  # (n_faces, n_dims)
+        # Gram-Schmidt refinement for x-axes
+        x_axes = jnp.cross(y_axes, z_axes)
+
+        # Stack into rotation matrices (x, y, z as columns)
+        rotations = jnp.stack([x_axes, y_axes, z_axes], axis=-1)  # (n_faces, n_dims, n_dims)
+
+        # Append identity matrix as fallback candidate,
+        # so that if all other rotations increase the volume,
+        # we return the identity rotation and the original points.
+        identity_rotation = jnp.eye(points_ndim)
+        rotations = jnp.concatenate([rotations, identity_rotation[None]], axis=0)  # (n_faces + 1, n_dims, n_dims)
+
+        # Ensure right-handed coordinate systems (i.e., no reflection)
+        # by flipping the last axis if the determinant is negative.
+        # Again, here we can't use the mask directly
+        # (i.e., `rotations.at[flip_mask, :, -1].multiply(-1.0)`),
+        # as we will get a `NonConcreteBooleanIndexError`.
+        # See: https://docs.jax.dev/en/latest/errors.html#jax.errors.NonConcreteBooleanIndexError
+        dets = jnp.linalg.det(rotations)  # (n_faces,)
+        flip_mask = dets < 0
+        scale = jnp.where(flip_mask, -1.0, 1.0).reshape(-1, 1)
+        z_axes_flipped = rotations[:, :, -1] * scale
+        rotations = rotations.at[:, :, -1].set(z_axes_flipped)
 
     # Rotate points for all rotations
     rotated_points = jnp.einsum('nj,fji->fni', points, rotations)  # (n_faces, n_points, n_dims)
@@ -157,7 +182,7 @@ def run_single(
     lower_bounds = jnp.min(rotated_points, axis=1)  # (n_faces, n_dims)
     upper_bounds = jnp.max(rotated_points, axis=1)  # (n_faces, n_dims)
 
-    # Compute volumes
+    # Compute volumes of AABBs
     volumes = jnp.prod(upper_bounds - lower_bounds, axis=1)  # (n_faces,)
 
     # Find minimal volume index (ignoring NaNs)
@@ -179,4 +204,4 @@ def run_single(
     return best_points, best_bbox, best_rotation, best_volume
 
 
-run_batch = jax.vmap(run_single, in_axes=(0, 0))
+run_batch = jax.jit(jax.vmap(run_single, in_axes=(0, 0)))
