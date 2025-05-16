@@ -106,8 +106,7 @@ def approx_hull_single(points: jnp.ndarray, simplices: jnp.ndarray):
     final_points : (n_points, 3) float
         Rotated points in minimal bounding box alignment.
     """
-
-    ndim = points.shape[1]
+    ndim = points.shape[-1]
 
     # Extract triangle vertices for all faces
     triangles = points[simplices]  # (n_faces, n_dims, n_dims)
@@ -140,6 +139,12 @@ def approx_hull_single(points: jnp.ndarray, simplices: jnp.ndarray):
 
     # Stack into rotation matrices (x, y, z as columns)
     rotations = jnp.stack([x_axes, y_axes, z_axes], axis=-1)  # (n_faces, n_dims, n_dims)
+
+    # Append identity matrix as fallback candidate,
+    # so that if all other rotations increase the volume,
+    # we return the identity rotation and the original points.
+    identity_rotation = jnp.eye(ndim)
+    rotations = jnp.concatenate([rotations, identity_rotation[None]], axis=0)  # (n_faces + 1, n_dims, n_dims)
 
     # Ensure right-handed coordinate systems (i.e., no reflection)
     # by flipping the last axis if the determinant is negative.
@@ -174,7 +179,6 @@ def approx_hull_single(points: jnp.ndarray, simplices: jnp.ndarray):
     best_points = rotated_points[idx_min_vol]
 
     # Bounding box corners (in rotated space)
-    # For each axis, create a list: [min, max]
     choices = jnp.stack([best_lower_bounds, best_upper_bounds], axis=0)  # (2, n_dims)
     # Generate all index combinations (0 or 1 per axis) — Cartesian product
     grid = jnp.indices((2,) * ndim).reshape(ndim, -1).T  # (2^n_dims, n_dims)
