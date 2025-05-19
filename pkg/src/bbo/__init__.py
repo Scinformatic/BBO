@@ -8,11 +8,11 @@ import numpy as np
 import jax.numpy as jnp
 
 from bbo import hull, pca
+from bbo.output import BBOOutput
 
 if TYPE_CHECKING:
     from typing import Literal
     from numpy.typing import ArrayLike
-    from bbo.output import BBOOutput
 
 __all__ = ["run", "hull", "pca"]
 
