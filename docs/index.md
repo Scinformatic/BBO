@@ -37,6 +37,7 @@
 - [CARLA Simulator: Bounding Boxes](https://carla.readthedocs.io/en/0.9.15/tuto_G_bounding_boxes/)
 - [OpenCV tutorial: Creating Bounding boxes and circles for contours](https://docs.opencv.org/4.x/da/d0c/tutorial_bounding_rects_circles.html)
 - [Matlab implementation of Korsawe's algorithm](https://www.mathworks.com/matlabcentral/fileexchange/18264-minimal-bounding-box)
+- https://bitbucket.org/william_rusnack/minimumboundingbox/src/master/
 
 
 ### Discussions
