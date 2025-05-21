@@ -31,10 +31,10 @@ def run(points: ArrayLike, method: Literal["hull", "pca", "best"] = "best") -> B
         pca_output = pca.run(points)
         if hull_output.volume.ndim == 0:
             return hull_output if hull_output.volume < pca_output.volume else pca_output
-        points = np.empty(hull_output.points.shape)
-        box = np.empty(hull_output.box.shape)
-        rotation = np.empty(hull_output.rotation.shape)
-        volume = np.empty(hull_output.volume.shape)
+        points = np.empty(hull_output.points.shape, dtype=hull_output.points.dtype)
+        box = np.empty(hull_output.box.shape, dtype=hull_output.box.dtype)
+        rotation = np.empty(hull_output.rotation.shape, dtype=hull_output.rotation.dtype)
+        volume = np.empty(hull_output.volume.shape, dtype=hull_output.volume.dtype)
         for i in range(hull_output.points.shape[0]):
             selected = hull_output if hull_output.volume[i] < pca_output.volume[i] else pca_output
             points[i] = selected.points[i]
