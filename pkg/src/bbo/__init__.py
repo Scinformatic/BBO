@@ -1,6 +1,20 @@
-"""BBO: Bounding Box Optimization Algorithms."""
+"""BBO: Fast and Vectorized Bounding Box Optimization.
 
-import numpy as np
+This package provides vectorized/parallelized algorithms
+for computing the optimal/approximate
+minimum-volume oriented bounding box (OBB)
+of point clouds in N-dimensional space.
+
+End users should call the `run` function,
+which automatically handles different input data shapes,
+performs the necessary checks,
+and returns a `BBOOutput` object containing the results in appropriate shapes.
+The `pca` and `hull` modules contain the underlying
+[JAX-jitted](https://docs.jax.dev/en/latest/jit-compilation.html) functions
+that perform the calculations on a single or batch of point clouds,
+and can be used for integration into other JAX-based workflows.
+"""
+
 import jax.numpy as jnp
 from typing import Literal
 
@@ -17,6 +31,21 @@ def run(
     points: Num[Array, "*n_batches n_samples n_features"],
     method: Literal["hull", "pca", "best"] = "best",
 ) -> BBOOutput:
+    """Calculate the minimum-volume OBB of one or several point clouds.
+
+    Parameters
+    ----------
+    points
+        Point cloud(s) as an array of shape `(*n_batches, n_samples, n_features)`,
+        where `*n_batches` is zero or more batch dimensions,
+        holding point clouds with `n_samples` points in `n_features` dimensions.
+        Note that both `n_samples` and `n_features` must be at least 2.
+    method
+        Method to use for bounding box optimization.
+        - "hull": Convex hull.
+        - "pca": Principal Component Analysis (PCA).
+        - "best": Use the best of the two methods (default).
+    """
     if method == "hull":
         return hull.run(points)
     if method == "pca":
