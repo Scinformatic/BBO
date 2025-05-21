@@ -1,26 +1,31 @@
+"""Utility functions."""
+
 import jax
 import jax.numpy as jnp
 
+from bbo.typing import atypecheck, Array, JAXArray, Num, Integer
+
 
 @jax.jit
-def box_vertices_from_bounds(lower_bounds: jnp.ndarray, upper_bounds: jnp.ndarray) -> jnp.ndarray:
-    """Generate the vertices of a box given its lower and upper bounds.
+@atypecheck
+def box_vertices_from_bounds(
+    lower_bounds: Num[Array, "n_features"],
+    upper_bounds: Num[Array, "n_features"],
+) -> Num[JAXArray, "2**n_features n_features"]:
+    """Generate coordinates for the vertices of an axis-aligned box given its lower and upper bounds.
 
     The vertices are ordered consistently for 2D (counter-clockwise) and 3D (face-order).
 
     Parameters
     ----------
     lower_bounds
-        Lower bounds of the box
-        as an array of shape `(n_dims,)`.
+        Lower bounds of the box,
+        i.e., coordinates of the vertex
+        with minimum values in all dimensions.
     upper_bounds
-        Upper bounds of the box
-        as an array of shape `(n_dims,)`.
-
-    Returns
-    -------
-    Vertices of the box
-    as an array of shape `(2^n_dims, n_dims)`.
+        Upper bounds of the box,
+        i.e., coordinates of the vertex
+        with maximum values in all dimensions.
     """
     ndim = lower_bounds.size
 
