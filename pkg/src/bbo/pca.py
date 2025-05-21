@@ -1,28 +1,24 @@
-from __future__ import annotations
+"""Principal Component Analysis ([PCA](https://en.wikipedia.org/wiki/Principal_component_analysis)) based OBB optimization."""
 
-from typing import TYPE_CHECKING
-
-from arrayer.pca import pca_single as _pca_single
+from arrayer.pca import pca_single
 import jax
 import jax.numpy as jnp
 
 from bbo import exception, util
 from bbo.output import BBOOutput
-
-if TYPE_CHECKING:
-    from numpy.typing import ArrayLike
+from bbo.typing import atypecheck, Array, JAXArray, Num
 
 
-def run(points: ArrayLike) -> tuple[jnp.ndarray, jnp.ndarray, jnp.ndarray, jnp.ndarray]:
+@atypecheck
+def run(points: Num[Array, "*n_batches n_samples n_features"]) -> BBOOutput:
     """Calculate the oriented minimum-volume bounding box (MVBB) of a set of points (or batch thereof).
 
     Parameters
     ----------
     points
         Points as an array of shape `(n_points, n_dimensions)`
-        or `(n_batches, n_points, n_dimensions)`.
+        or `(*n_batches, n_points, n_dimensions)`.
     """
-    points = jnp.asarray(points)
     if points.shape[-2] < 2:
         raise exception.InputError(
             name="points",
@@ -36,20 +32,28 @@ def run(points: ArrayLike) -> tuple[jnp.ndarray, jnp.ndarray, jnp.ndarray, jnp.n
             problem=f"At least 2 features are required, but got {points.shape[1]}."
         )
     if points.ndim == 2:
-        func = run_single
+        return BBOOutput(*run_single(points))
     elif points.ndim == 3:
-        func = run_batch
-    else:
-        raise exception.InputError(
-            name="points",
-            value=points,
-            problem=f"Points must be a 2D or 3D array, but is {points.ndim}D."
-        )
-    return BBOOutput(*func(points))
+        return BBOOutput(*run_batch(points))
+    points_reshaped = points.reshape(-1, *points.shape[-2:])
+    points_rotated, bbox_vertices, rotation_final, volume_final = run_batch(points_reshaped)
+    batch_shape = points.shape[:-2]
+    return BBOOutput(
+        points=points_rotated.reshape(*points.shape),
+        box=bbox_vertices.reshape(*batch_shape, *bbox_vertices.shape[-2:]),
+        rotation=rotation_final.reshape(*batch_shape, *rotation_final.shape[-2:]),
+        volume=volume_final.reshape(*batch_shape),
+    )
 
 
 @jax.jit
-def run_single(points: jnp.ndarray):
+@atypecheck
+def run_single(points: Num[Array, "n_samples n_features"]) -> tuple[
+    Num[JAXArray, "n_samples n_features"],
+    Num[JAXArray, "2**n_features n_features"],
+    Num[JAXArray, "n_features n_features"],
+    Num[JAXArray, ""],
+]:
     """Calculate the oriented minimum-volume bounding box (MVBB) of a set of points.
 
     Parameters
@@ -57,8 +61,10 @@ def run_single(points: jnp.ndarray):
     points
         Points as an array of shape `(n_points, n_dimensions)`.
     """
+    points = jnp.asarray(points)
+
     # Calculate the PCA version
-    points_transformed, components, _, translation = _pca_single(points)
+    points_transformed, components, _, translation = pca_single(points)
     rotation_transpose = components
     rotation = rotation_transpose.T
     lower_bounds_pca = jnp.min(points_transformed, axis=0)
@@ -84,4 +90,16 @@ def run_single(points: jnp.ndarray):
     return points_rotated, bbox_vertices, rotation_final, volume_final
 
 
-run_batch = jax.jit(jax.vmap(run_single))
+@jax.jit
+@atypecheck
+def run_batch(points: Num[Array, "n_batches n_samples n_features"]) -> tuple[
+    Num[JAXArray, "n_batches n_samples n_features"],
+    Num[JAXArray, "n_batches 2**n_features n_features"],
+    Num[JAXArray, "n_batches n_features n_features"],
+    Num[JAXArray, "n_batches"],
+]:
+    points = jnp.asarray(points)
+    return _run_batch(points)
+
+
+_run_batch = jax.vmap(run_single)
