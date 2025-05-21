@@ -164,7 +164,7 @@ def run_single(
         # Append identity matrix as fallback candidate,
         # so that if all other rotations increase the volume,
         # we return the identity rotation and the original points.
-        identity_rotation = jnp.eye(points_ndim)
+        identity_rotation = jnp.eye(points_ndim, dtype=points.dtype)
         rotations = jnp.concatenate([rotations, identity_rotation[None]], axis=0)  # (n_faces + 1, n_dims, n_dims)
 
         # Ensure right-handed coordinate systems (i.e., no reflection)
