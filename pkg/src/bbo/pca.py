@@ -73,7 +73,7 @@ def run_single(points: jnp.ndarray):
     upper_bounds_orig = jnp.max(points, axis=0)
     volume_orig = jnp.prod(upper_bounds_orig - lower_bounds_orig)
     bbox_vertices_orig = util.box_vertices_from_bounds(lower_bounds_orig, upper_bounds_orig)
-    rotation_orig = jnp.eye(points.shape[1])
+    rotation_orig = jnp.eye(points.shape[1], dtype=points.dtype)
 
     # Select between PCA and original results
     pred = volume_pca < volume_orig
