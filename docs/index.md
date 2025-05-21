@@ -1,5 +1,12 @@
 
 
+For other algorithms, see:
+- [Minimum bounding box algorithms - Wikipedia](https://en.wikipedia.org/wiki/Minimum_bounding_box_algorithms)
+- https://perso.uclouvain.be/chia-tche.chang/resources/CGM11_paper.pdf
+- https://gis.stackexchange.com/questions/22895/finding-minimum-area-rectangle-for-given-points
+- https://math.stackexchange.com/questions/2342844/how-to-find-the-rotation-which-minimizes-the-volume-of-the-bounding-box
+
+
 ## References
 
 ### General
