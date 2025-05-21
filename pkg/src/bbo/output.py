@@ -1,12 +1,9 @@
-from __future__ import annotations
-
 from dataclasses import dataclass
-from typing import TYPE_CHECKING
 
-if TYPE_CHECKING:
-    from jax.numpy import ndarray
+from bbo.typing import atypecheck, JAXArray, Num
 
 
+@atypecheck
 @dataclass
 class BBOOutput:
     """Bounding box optimization output.
@@ -22,7 +19,7 @@ class BBOOutput:
     volume
         Volume of the minimal bounding box.
     """
-    points: ndarray
-    box: ndarray
-    rotation: ndarray
-    volume: ndarray
+    points: Num[JAXArray, "*n_batches n_samples n_features"]
+    box: Num[JAXArray, "*n_batches 2**n_features n_features"]
+    rotation: Num[JAXArray, "*n_batches n_features n_features"]
+    volume: Num[JAXArray, "*n_batches"]
