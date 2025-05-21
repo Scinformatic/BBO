@@ -6,6 +6,11 @@
 This aligns the bounding box to the principal axes of the point cloud.
 This is a fast approximation, but can fail for non-ellipsoidal shapes.
 
+This method uses principal component analysis (PCA) to find the rotation.
+It is not guaranteed to find the optimal rotation,
+but it is a good approximation
+(cf. [On the bounding boxes obtained by principal component analysis](https://www.researchgate.net/publication/235758825_On_the_bounding_boxes_obtained_by_principal_component_analysis)).
+
 ### Convex Hull Based Methods
 
 For 2D points, the **rotating calipers** method is used to find the global minimum as follows:
