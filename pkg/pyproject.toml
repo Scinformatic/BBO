@@ -17,7 +17,7 @@ namespaces = true
 # ----------------------------------------- Project Metadata -------------------------------------
 #
 [project]
-version = "0.0.1"
+version = "0.0.2"
 name = "BBO"
 requires-python = ">=3.10"
 dependencies = [
@@ -25,6 +25,7 @@ dependencies = [
     "scipy",
     "jax",
     "arrayer < 0.2",
-    "beartype",
-    "jaxtyping",
+    "ray",
+    "beartype",   # https://github.com/beartype/beartype
+    "jaxtyping",  # https://github.com/patrick-kidger/jaxtyping
 ]
